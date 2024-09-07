@@ -1,0 +1,94 @@
+package analisis;
+
+import java_cup.runtime.Symbol;
+import java.util.*;
+import clases.*;
+
+parser code {:
+    public LinkedList<IStatement> AST = new LinkedList<>();
+    public LinkedList<String> syntaxErrors = new LinkedList<>();
+    public LinkedList<String> evaluationResults = new LinkedList<>();
+
+    @Override
+    public void report_error(String message, Object info) {
+        Symbol s = (Symbol) info;
+        syntaxErrors.add("Syntax error at line " + (s.left + 1) + ", column " + (s.right + 1) + ": " + message);
+    }
+
+    @Override
+    public void report_fatal_error(String message, Object info) {
+        Symbol s = (Symbol) info;
+        syntaxErrors.add("Fatal syntax error at line " + (s.left + 1) + ", column " + (s.right + 1) + ": " + message);
+        done_parsing();
+    }
+
+    public void printEvaluationResults() {
+        for (String result : evaluationResults) {
+            System.out.println(result);
+        }
+    }
+:}
+
+// Declaración de terminales
+terminal String CONJ, OPERA, EVALUAR, ID, NUM, UNIVERSO;
+terminal String TK_UNION, TK_INTERSECCION, TK_DIFERENCIA, TK_COMPLEMENTO;
+terminal DOSP, CORI, CORD, FLECHA, PUNCOM, COMA, PARI, PARD;
+
+// Declaración de no terminales
+non terminal LinkedList<IStatement> ini;
+non terminal LinkedList<IStatement> instrucciones;
+non terminal IStatement instruccion;
+non terminal SetDefine conjunto_def;
+non terminal Set<Integer> conjunto_elements;
+non terminal SetReference conjunto;
+non terminal IOperation expr;
+non terminal SetOperation statement;
+non terminal EvaluateStatement evaluate_statement;
+non terminal List<Integer> numeros;
+
+// Precedencias y asociatividades
+precedence left TK_UNION, TK_INTERSECCION;
+precedence left TK_DIFERENCIA;
+precedence right TK_COMPLEMENTO;
+
+// Reglas de producción
+start with ini;
+
+ini ::= instrucciones:i {: RESULT = i; parser.AST = i; :};
+
+instrucciones ::= instrucciones:i instruccion:j {: RESULT = i; RESULT.add(j); :}
+                | instruccion:i {: RESULT = new LinkedList<IStatement>(); RESULT.add(i); :};
+
+instruccion ::= conjunto_def:s {: RESULT = s; :}
+              | statement:s {: RESULT = s; :}
+              | evaluate_statement:s {: RESULT = s; :}
+              | error PUNCOM {: parser.syntaxErrors.add("Error in instruction"); RESULT = null; :};
+
+conjunto_def ::= CONJ ID:id DOSP conjunto_elements:c PUNCOM 
+                {: RESULT = new SetDefine(id, c); :}
+               | CONJ ID:id DOSP UNIVERSO PUNCOM
+                {: RESULT = new SetDefine(id, generateUniverseSet()); :};
+
+conjunto_elements ::= CORI numeros:n CORD {: RESULT = new HashSet<>(n); :}
+                    | error {: parser.syntaxErrors.add("Error in set elements"); RESULT = new HashSet<>(); :};
+
+numeros ::= numeros:n COMA NUM:num {: n.add(Integer.valueOf(num)); RESULT = n; :}
+          | NUM:num {: RESULT = new ArrayList<>(); RESULT.add(Integer.valueOf(num)); :};
+
+conjunto ::= ID:id {: RESULT = new SetReference(id); :};
+
+statement ::= OPERA ID:id DOSP expr:e PUNCOM {: RESULT = new SetOperation(id, e); :};
+
+expr ::= expr:e1 TK_UNION expr:e2 {: RESULT = new Union(e1, e2); :}
+       | expr:e1 TK_INTERSECCION expr:e2 {: RESULT = new Intersection(e1, e2); :}
+       | expr:e1 TK_DIFERENCIA expr:e2 {: RESULT = new Difference(e1, e2); :}
+       | TK_COMPLEMENTO expr:e {: RESULT = new Complement(e); :}
+       | PARI expr:e PARD {: RESULT = e; :}
+       | conjunto:c {: RESULT = c; :}
+       | error {: parser.syntaxErrors.add("Error in expression"); RESULT = null; :};
+
+evaluate_statement ::= EVALUAR ID:id FLECHA numeros:n PUNCOM 
+    {: 
+        RESULT = new EvaluateStatement(id, n);
+        parser.evaluationResults.add("Evaluating operation: " + id);
+    :};
